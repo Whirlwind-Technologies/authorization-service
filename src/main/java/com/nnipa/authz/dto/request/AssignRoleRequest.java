@@ -26,5 +26,7 @@ public class AssignRoleRequest {
 
     private String assignedBy;
 
+    private String roleName;
+
     private Instant expiresAt;
 }

@@ -25,7 +25,7 @@ import java.util.concurrent.CompletableFuture;
 @RequiredArgsConstructor
 public class AuthorizationEventPublisher {
 
-    private final KafkaTemplate<String, Object> kafkaTemplate;
+    private final KafkaTemplate<String, byte[]> kafkaTemplate;
 
     @Value("${kafka.topics.authorization-checked:nnipa.events.authz.checked}")
     private String authorizationCheckedTopic;
@@ -68,8 +68,7 @@ public class AuthorizationEventPublisher {
                     .setTenantId(request.getTenantId().toString())
                     .setResource(request.getResource())
                     .setAction(request.getAction())
-                    .setAllowed(false) // Will be updated by the actual result
-                    .setTimestamp(toProtobufTimestamp(Instant.now()));
+                    .setCheckedAt(toProtobufTimestamp(Instant.now()));
 
             // Add optional fields
             if (request.getIpAddress() != null) {
@@ -83,7 +82,7 @@ public class AuthorizationEventPublisher {
 
             AuthorizationCheckedEvent event = eventBuilder.build();
 
-            sendEvent(authorizationCheckedTopic, request.getUserId().toString(), event);
+            sendEvent(authorizationCheckedTopic, request.getUserId().toString(), event.toByteArray());
         } catch (Exception e) {
             log.error("Error publishing authorization event", e);
         }
@@ -92,17 +91,26 @@ public class AuthorizationEventPublisher {
     /**
      * Publish role created event.
      */
-    public void publishRoleCreatedEvent(UUID roleId, UUID tenantId, String roleName) {
+    public void publishRoleCreatedEvent(UUID roleId, UUID tenantId, String roleName,
+                                        String description, String createdBy) {
         try {
-            RoleCreatedEvent event = RoleCreatedEvent.newBuilder()
+            RoleCreatedEvent.Builder eventBuilder = RoleCreatedEvent.newBuilder()
                     .setMetadata(createEventMetadata())
                     .setRoleId(roleId.toString())
                     .setTenantId(tenantId.toString())
                     .setRoleName(roleName)
-                    .setCreatedAt(toProtobufTimestamp(Instant.now()))
-                    .build();
+                    .setCreatedAt(toProtobufTimestamp(Instant.now()));
 
-            sendEvent(roleCreatedTopic, roleId.toString(), event);
+            if (description != null) {
+                eventBuilder.setDescription(description);
+            }
+
+            if (createdBy != null) {
+                eventBuilder.setCreatedBy(createdBy);
+            }
+
+            RoleCreatedEvent event = eventBuilder.build();
+            sendEvent(roleCreatedTopic, roleId.toString(), event.toByteArray());
         } catch (Exception e) {
             log.error("Error publishing role created event", e);
         }
@@ -111,17 +119,22 @@ public class AuthorizationEventPublisher {
     /**
      * Publish role updated event.
      */
-    public void publishRoleUpdatedEvent(UUID roleId, UUID tenantId, Map<String, String> changes) {
+    public void publishRoleUpdatedEvent(UUID roleId, UUID tenantId, Map<String, String> changes,
+                                        String updatedBy) {
         try {
-            RoleUpdatedEvent event = RoleUpdatedEvent.newBuilder()
+            RoleUpdatedEvent.Builder eventBuilder = RoleUpdatedEvent.newBuilder()
                     .setMetadata(createEventMetadata())
                     .setRoleId(roleId.toString())
                     .setTenantId(tenantId.toString())
                     .putAllChanges(changes)
-                    .setUpdatedAt(toProtobufTimestamp(Instant.now()))
-                    .build();
+                    .setUpdatedAt(toProtobufTimestamp(Instant.now()));
 
-            sendEvent(roleUpdatedTopic, roleId.toString(), event);
+            if (updatedBy != null) {
+                eventBuilder.setUpdatedBy(updatedBy);
+            }
+
+            RoleUpdatedEvent event = eventBuilder.build();
+            sendEvent(roleUpdatedTopic, roleId.toString(), event.toByteArray());
         } catch (Exception e) {
             log.error("Error publishing role updated event", e);
         }
@@ -130,16 +143,20 @@ public class AuthorizationEventPublisher {
     /**
      * Publish role deleted event.
      */
-    public void publishRoleDeletedEvent(UUID roleId, UUID tenantId) {
+    public void publishRoleDeletedEvent(UUID roleId, UUID tenantId, String deletedBy) {
         try {
-            RoleDeletedEvent event = RoleDeletedEvent.newBuilder()
+            RoleDeletedEvent.Builder eventBuilder = RoleDeletedEvent.newBuilder()
                     .setMetadata(createEventMetadata())
                     .setRoleId(roleId.toString())
                     .setTenantId(tenantId.toString())
-                    .setDeletedAt(toProtobufTimestamp(Instant.now()))
-                    .build();
+                    .setDeletedAt(toProtobufTimestamp(Instant.now()));
 
-            sendEvent(roleDeletedTopic, roleId.toString(), event);
+            if (deletedBy != null) {
+                eventBuilder.setDeletedBy(deletedBy);
+            }
+
+            RoleDeletedEvent event = eventBuilder.build();
+            sendEvent(roleDeletedTopic, roleId.toString(), event.toByteArray());
         } catch (Exception e) {
             log.error("Error publishing role deleted event", e);
         }
@@ -148,17 +165,26 @@ public class AuthorizationEventPublisher {
     /**
      * Publish role assigned event.
      */
-    public void publishRoleAssignedEvent(UUID userId, UUID roleId, UUID tenantId) {
+    public void publishRoleAssignedEvent(UUID userId, UUID roleId, UUID tenantId,
+                                         String roleName, String assignedBy) {
         try {
-            RoleAssignedEvent event = RoleAssignedEvent.newBuilder()
+            RoleAssignedEvent.Builder eventBuilder = RoleAssignedEvent.newBuilder()
                     .setMetadata(createEventMetadata())
                     .setUserId(userId.toString())
                     .setRoleId(roleId.toString())
                     .setTenantId(tenantId.toString())
-                    .setAssignedAt(toProtobufTimestamp(Instant.now()))
-                    .build();
+                    .setAssignedAt(toProtobufTimestamp(Instant.now()));
 
-            sendEvent(roleAssignedTopic, userId.toString(), event);
+            if (roleName != null) {
+                eventBuilder.setRoleName(roleName);
+            }
+
+            if (assignedBy != null) {
+                eventBuilder.setAssignedBy(assignedBy);
+            }
+
+            RoleAssignedEvent event = eventBuilder.build();
+            sendEvent(roleAssignedTopic, userId.toString(), event.toByteArray());
         } catch (Exception e) {
             log.error("Error publishing role assigned event", e);
         }
@@ -167,7 +193,8 @@ public class AuthorizationEventPublisher {
     /**
      * Publish role revoked event.
      */
-    public void publishRoleRevokedEvent(UUID userId, UUID roleId, UUID tenantId, String reason) {
+    public void publishRoleRevokedEvent(UUID userId, UUID roleId, UUID tenantId,
+                                        String roleName, String revokedBy, String reason) {
         try {
             RoleRevokedEvent.Builder eventBuilder = RoleRevokedEvent.newBuilder()
                     .setMetadata(createEventMetadata())
@@ -176,12 +203,20 @@ public class AuthorizationEventPublisher {
                     .setTenantId(tenantId.toString())
                     .setRevokedAt(toProtobufTimestamp(Instant.now()));
 
+            if (roleName != null) {
+                eventBuilder.setRoleName(roleName);
+            }
+
+            if (revokedBy != null) {
+                eventBuilder.setRevokedBy(revokedBy);
+            }
+
             if (reason != null) {
                 eventBuilder.setReason(reason);
             }
 
             RoleRevokedEvent event = eventBuilder.build();
-            sendEvent(roleRevokedTopic, userId.toString(), event);
+            sendEvent(roleRevokedTopic, userId.toString(), event.toByteArray());
         } catch (Exception e) {
             log.error("Error publishing role revoked event", e);
         }
@@ -190,19 +225,27 @@ public class AuthorizationEventPublisher {
     /**
      * Publish permission granted event.
      */
-    public void publishPermissionGrantedEvent(UUID roleId, UUID permissionId,
-                                              String resourceType, String action) {
+    public void publishPermissionGrantedEvent(UUID userId, UUID tenantId, UUID roleId,
+                                              UUID permissionId, String resource,
+                                              String resourceType, String action, String grantedBy) {
         try {
-            PermissionGrantedEvent event = PermissionGrantedEvent.newBuilder()
+            PermissionGrantedEvent.Builder eventBuilder = PermissionGrantedEvent.newBuilder()
                     .setMetadata(createEventMetadata())
+                    .setUserId(userId.toString())
+                    .setTenantId(tenantId.toString())
                     .setRoleId(roleId.toString())
                     .setPermissionId(permissionId.toString())
+                    .setResource(resource)
                     .setResourceType(resourceType)
                     .setAction(action)
-                    .setGrantedAt(toProtobufTimestamp(Instant.now()))
-                    .build();
+                    .setGrantedAt(toProtobufTimestamp(Instant.now()));
 
-            sendEvent(permissionGrantedTopic, roleId.toString(), event);
+            if (grantedBy != null) {
+                eventBuilder.setGrantedBy(grantedBy);
+            }
+
+            PermissionGrantedEvent event = eventBuilder.build();
+            sendEvent(permissionGrantedTopic, roleId.toString(), event.toByteArray());
         } catch (Exception e) {
             log.error("Error publishing permission granted event", e);
         }
@@ -211,16 +254,20 @@ public class AuthorizationEventPublisher {
     /**
      * Publish permission revoked event.
      */
-    public void publishPermissionRevokedEvent(UUID roleId, UUID permissionId) {
+    public void publishPermissionRevokedEvent(UUID roleId, UUID permissionId, String revokedBy) {
         try {
-            PermissionRevokedEvent event = PermissionRevokedEvent.newBuilder()
+            PermissionRevokedEvent.Builder eventBuilder = PermissionRevokedEvent.newBuilder()
                     .setMetadata(createEventMetadata())
                     .setRoleId(roleId.toString())
                     .setPermissionId(permissionId.toString())
-                    .setRevokedAt(toProtobufTimestamp(Instant.now()))
-                    .build();
+                    .setRevokedAt(toProtobufTimestamp(Instant.now()));
 
-            sendEvent(permissionRevokedTopic, roleId.toString(), event);
+            if (revokedBy != null) {
+                eventBuilder.setRevokedBy(revokedBy);
+            }
+
+            PermissionRevokedEvent event = eventBuilder.build();
+            sendEvent(permissionRevokedTopic, roleId.toString(), event.toByteArray());
         } catch (Exception e) {
             log.error("Error publishing permission revoked event", e);
         }
@@ -230,19 +277,23 @@ public class AuthorizationEventPublisher {
      * Publish policy created event.
      */
     public void publishPolicyCreatedEvent(UUID policyId, UUID tenantId, String policyName,
-                                          String policyType, String effect) {
+                                          String policyType, String effect, String createdBy) {
         try {
-            PolicyCreatedEvent event = PolicyCreatedEvent.newBuilder()
+            PolicyCreatedEvent.Builder eventBuilder = PolicyCreatedEvent.newBuilder()
                     .setMetadata(createEventMetadata())
                     .setPolicyId(policyId.toString())
                     .setTenantId(tenantId.toString())
                     .setPolicyName(policyName)
                     .setPolicyType(policyType)
                     .setEffect(effect)
-                    .setCreatedAt(toProtobufTimestamp(Instant.now()))
-                    .build();
+                    .setCreatedAt(toProtobufTimestamp(Instant.now()));
 
-            sendEvent(policyCreatedTopic, policyId.toString(), event);
+            if (createdBy != null) {
+                eventBuilder.setCreatedBy(createdBy);
+            }
+
+            PolicyCreatedEvent event = eventBuilder.build();
+            sendEvent(policyCreatedTopic, policyId.toString(), event.toByteArray());
         } catch (Exception e) {
             log.error("Error publishing policy created event", e);
         }
@@ -264,7 +315,7 @@ public class AuthorizationEventPublisher {
                     .setEvaluatedAt(toProtobufTimestamp(Instant.now()))
                     .build();
 
-            sendEvent(policyEvaluatedTopic, userId.toString(), event);
+            sendEvent(policyEvaluatedTopic, userId.toString(), event.toByteArray());
         } catch (Exception e) {
             log.error("Error publishing policy evaluated event", e);
         }
@@ -275,8 +326,8 @@ public class AuthorizationEventPublisher {
     /**
      * Send event to Kafka topic.
      */
-    private void sendEvent(String topic, String key, Object event) {
-        CompletableFuture<SendResult<String, Object>> future =
+    private void sendEvent(String topic, String key, byte[] event) {
+        CompletableFuture<SendResult<String, byte[]>> future =
                 kafkaTemplate.send(topic, key, event);
 
         future.whenComplete((result, ex) -> {

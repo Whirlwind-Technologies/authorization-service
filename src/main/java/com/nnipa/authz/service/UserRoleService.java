@@ -74,7 +74,7 @@ public class UserRoleService {
 
         // Publish event
         eventPublisher.publishRoleAssignedEvent(
-                request.getUserId(), request.getRoleId(), request.getTenantId()
+                request.getUserId(), request.getRoleId(), request.getTenantId(), request.getRoleName() ,request.getAssignedBy()
         );
 
         log.info("Role assigned successfully");

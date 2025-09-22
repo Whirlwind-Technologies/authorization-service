@@ -29,6 +29,8 @@ import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -111,7 +113,13 @@ public class RoleService {
         }
 
         // Publish role created event
-        eventPublisher.publishRoleCreatedEvent(role.getId(), role.getTenantId(), role.getName());
+        eventPublisher.publishRoleCreatedEvent(
+                role.getId(),
+                role.getTenantId(),
+                role.getName(),
+                role.getDescription(),
+                request.getCreatedBy()
+        );
 
         log.info("Role created successfully: {}", role.getId());
         return roleMapper.toResponse(role);
@@ -128,30 +136,35 @@ public class RoleService {
         Role role = roleRepository.findById(roleId)
                 .orElseThrow(() -> new ResourceNotFoundException("Role not found"));
 
+        // Track changes for event publishing
+        Map<String, String> changes = new HashMap<>();
+
         // Prevent updating system roles
         if (role.isSystem() && !Boolean.TRUE.equals(request.getAllowSystemUpdate())) {
             throw new BusinessRuleException("System roles cannot be modified");
         }
 
         // Update basic fields
-        if (request.getName() != null) {
+        if (request.getName() != null && !role.getName().equals(request.getName())) {
             // Check for duplicate name
-            if (!role.getName().equals(request.getName()) &&
-                    roleRepository.existsByNameAndTenantId(request.getName(), role.getTenantId())) {
+            if (roleRepository.existsByNameAndTenantId(request.getName(), role.getTenantId())) {
                 throw new DuplicateResourceException("Role name already exists");
             }
+            changes.put("name", String.format("%s -> %s", role.getName(), request.getName()));
             role.setName(request.getName());
         }
 
-        if (request.getDescription() != null) {
+        if (request.getDescription() != null && !Objects.equals(role.getDescription(), request.getDescription())) {
+            changes.put("description", String.format("%s -> %s", role.getDescription(), request.getDescription()));
             role.setDescription(request.getDescription());
         }
 
-        if (request.getPriority() != null) {
+        if (request.getPriority() != null && !Objects.equals(role.getPriority(), request.getPriority())) {
+            changes.put("priority", String.format("%d -> %d", role.getPriority(), request.getPriority()));
             role.setPriority(request.getPriority());
         }
 
-        if (request.getMaxUsers() != null) {
+        if (request.getMaxUsers() != null && !Objects.equals(role.getMaxUsers(), request.getMaxUsers())) {
             // Validate max users constraint
             long currentUsers = userRoleRepository.countActiveUsersByRoleId(roleId);
             if (request.getMaxUsers() < currentUsers) {
@@ -160,15 +173,24 @@ public class RoleService {
                                 request.getMaxUsers(), currentUsers)
                 );
             }
+            changes.put("maxUsers", String.format("%s -> %d",
+                    role.getMaxUsers() != null ? role.getMaxUsers().toString() : "null",
+                    request.getMaxUsers()));
             role.setMaxUsers(request.getMaxUsers());
         }
 
-        if (request.getIsActive() != null) {
+        if (request.getIsActive() != null && !Objects.equals(role.isActive(), request.getIsActive())) {
+            changes.put("isActive", String.format("%b -> %b", role.isActive(), request.getIsActive()));
             role.setActive(request.getIsActive());
         }
 
         role.setUpdatedBy(request.getUpdatedBy());
         role = roleRepository.save(role);
+
+        // Publish role updated event if there were changes
+        if (!changes.isEmpty()) {
+            eventPublisher.publishRoleUpdatedEvent(roleId, role.getTenantId(), changes, request.getUpdatedBy());
+        }
 
         log.info("Role updated successfully: {}", roleId);
         return roleMapper.toResponse(role);
@@ -297,13 +319,20 @@ public class RoleService {
             rolePermissionRepository.saveAll(newPermissions);
             log.info("Assigned {} new permissions to role", newPermissions.size());
 
-            // Publish events for each permission
+            // Publish events for each permission - FIXED method signature
             for (RolePermission rp : newPermissions) {
+                // Get current user ID and context for the event
+                String currentUserId = getCurrentUserId();
+
                 eventPublisher.publishPermissionGrantedEvent(
-                        role.getId(),
-                        rp.getPermission().getId(),
-                        rp.getPermission().getResourceType(),
-                        rp.getPermission().getAction()
+                        currentUserId != null ? UUID.fromString(currentUserId) : null,  // userId
+                        role.getTenantId(),                                             // tenantId
+                        role.getId(),                                                   // roleId
+                        rp.getPermission().getId(),                                     // permissionId
+                        rp.getPermission().getResourceType(),                       // resource
+                        rp.getPermission().getResourceType(),                          // resourceType
+                        rp.getPermission().getAction(),                                // action
+                        assignedBy                                                      // grantedBy
                 );
             }
         }
@@ -331,7 +360,7 @@ public class RoleService {
 
         rolePermissionRepository.deleteByRoleIdAndPermissionId(roleId, permissionId);
 
-        eventPublisher.publishPermissionRevokedEvent(roleId, permissionId);
+        eventPublisher.publishPermissionRevokedEvent(roleId, permissionId, getCurrentUserName());
 
         log.info("Permission removed from role");
     }
@@ -504,7 +533,7 @@ public class RoleService {
         // Delete role (cascade will handle permissions)
         roleRepository.deleteById(roleId);
 
-        eventPublisher.publishRoleDeletedEvent(roleId, role.getTenantId());
+        eventPublisher.publishRoleDeletedEvent(roleId, role.getTenantId(), getCurrentUserName());
 
         log.info("Role deleted successfully");
     }
@@ -584,6 +613,28 @@ public class RoleService {
     }
 
     // ==================== Private Helper Methods ====================
+
+    /**
+     * Get current user ID from security context.
+     */
+    private String getCurrentUserId() {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication != null && authentication.getPrincipal() instanceof String) {
+            return (String) authentication.getPrincipal();
+        }
+        return null;
+    }
+
+    /**
+     * Get current user name from security context.
+     */
+    private String getCurrentUserName() {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication != null) {
+            return authentication.getName();
+        }
+        return "SYSTEM";
+    }
 
     /**
      * Validate hierarchy depth doesn't exceed maximum.

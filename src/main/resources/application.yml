@@ -63,38 +63,27 @@ spring:
     bootstrap-servers: ${KAFKA_BROKERS:localhost:9092}
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
-      value-serializer: io.confluent.kafka.serializers.protobuf.KafkaProtobufSerializer
+      value-serializer: org.apache.kafka.common.serialization.ByteArraySerializer
       acks: all
       retries: 3
       properties:
         schema.registry.url: ${SCHEMA_REGISTRY_URL:http://localhost:8081}
         auto.register.schemas: true
-        enable.auto.commit: false
-
+        max.in.flight.requests.per.connection: 5
+        enable.idempotence: true
+        compression.type: snappy
+        linger.ms: 10
+        batch.size: 32768
     consumer:
+      group-id: notification-service
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
-      value-deserializer: io.confluent.kafka.serializers.protobuf.KafkaProtobufDeserializer
-      group-id: authorization-service
+      value-deserializer: org.apache.kafka.common.serialization.ByteArrayDeserializer
       auto-offset-reset: earliest
       enable-auto-commit: false
       properties:
-        schema.registry.url: ${SCHEMA_REGISTRY_URL:http://localhost:8081}
-        specific.protobuf.value.type: com.google.protobuf.DynamicMessage
-
-    topics:
-      # Authorization Events
-      authorization-checked: nnipa.events.authz.checked
-      role-created: nnipa.events.authz.role.created
-      role-updated: nnipa.events.authz.role.updated
-      role-deleted: nnipa.events.authz.role.deleted
-      role-assigned: nnipa.events.authz.role.assigned
-      role-revoked: nnipa.events.authz.role.revoked
-      permission-granted: nnipa.events.authz.permission.granted
-      permission-revoked: nnipa.events.authz.permission.revoked
-      policy-created: nnipa.events.authz.policy.created
-      policy-updated: nnipa.events.authz.policy.updated
-      policy-evaluated: nnipa.events.authz.policy.evaluated
-      resource-protected: nnipa.events.authz.resource.protected
+        max.poll.records: 10
+        max.poll.interval.ms: 300000
+        isolation.level: read_committed
 
   cache:
     type: caffeine
@@ -180,7 +169,6 @@ management:
 logging:
   level:
     com.nnipa.authz: DEBUG
-    org.springframework.security: DEBUG
     org.springframework.cache: DEBUG
     org.hibernate.SQL: DEBUG
     org.hibernate.type.descriptor.sql.BasicBinder: TRACE
@@ -189,5 +177,7 @@ logging:
     file: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
   file:
     name: logs/authorization-service.log
-    max-size: 10MB
-    max-history: 30
+  logback:
+    rollingpolicy:
+      max-file-size: 10MB
+      max-history: 30
