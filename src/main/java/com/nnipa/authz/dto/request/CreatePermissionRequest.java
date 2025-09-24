@@ -1,27 +1,26 @@
-package com.nnipa.authz.dto.response;
+package com.nnipa.authz.dto.request;
 
+import jakarta.validation.constraints.NotBlank;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-import java.time.Instant;
-import java.util.UUID;
-
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class PermissionResponse {
-    private UUID id;
+public class CreatePermissionRequest {
+
+    @NotBlank(message = "Resource type is required")
     private String resourceType;
+
+    @NotBlank(message = "Action is required")
     private String action;
+
     private String description;
     private Boolean isSystem;
-    private Boolean isActive;
     private String riskLevel;
     private Boolean requiresMfa;
     private Boolean requiresApproval;
-    private Instant createdAt;
-    private Instant updatedAt;
 }

@@ -22,6 +22,9 @@ public class AuthorizationRequest {
     @NotNull(message = "Tenant ID is required")
     private UUID tenantId;
 
+    // Add this field for cross-tenant access checks
+    private UUID targetTenantId;
+
     @NotNull(message = "Resource is required")
     private String resource;
 

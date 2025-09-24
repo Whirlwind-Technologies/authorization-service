@@ -4,6 +4,7 @@ import com.google.protobuf.Timestamp;
 import com.nnipa.authz.dto.request.AuthorizationRequest;
 import com.nnipa.proto.authz.*;
 import com.nnipa.proto.common.EventMetadata;
+import com.nnipa.proto.common.Priority;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -56,6 +57,12 @@ public class AuthorizationEventPublisher {
 
     @Value("${kafka.topics.policy-evaluated:nnipa.events.authz.policy-evaluated}")
     private String policyEvaluatedTopic;
+
+    @Value("${kafka.topics.cross-tenant-granted:nnipa.events.authz.cross-tenant-granted}")
+    private String crossTenantGrantedTopic;
+
+    @Value("${kafka.topics.cross-tenant-revoked:nnipa.events.authz.cross-tenant-revoked}")
+    private String crossTenantRevokedTopic;
 
     /**
      * Publish authorization checked event.
@@ -321,6 +328,54 @@ public class AuthorizationEventPublisher {
         }
     }
 
+    /**
+     * Publish cross-tenant access granted event.
+     */
+    public void publishCrossTenantAccessGrantedEvent(
+            UUID sourceTenantId,
+            UUID targetTenantId,
+            String resourceType,
+            String grantedBy) {
+        try {
+            CrossTenantAccessGrantedEvent event = CrossTenantAccessGrantedEvent.newBuilder()
+                    .setMetadata(createEventMetadata())
+                    .setSourceTenantId(sourceTenantId.toString())
+                    .setTargetTenantId(targetTenantId.toString())
+                    .setResourceType(resourceType)
+                    .setGrantedBy(grantedBy)
+                    .setTimestamp(toProtobufTimestamp(Instant.now()))
+                    .build();
+
+            sendEvent(crossTenantGrantedTopic, sourceTenantId.toString(), event.toByteArray());
+        } catch (Exception e) {
+            log.error("Error publishing cross-tenant access granted event", e);
+        }
+    }
+
+    /**
+     * Publish cross-tenant access revoked event.
+     */
+    public void publishCrossTenantAccessRevokedEvent(
+            UUID sourceTenantId,
+            UUID targetTenantId,
+            String resourceType,
+            String revokedBy) {
+        try {
+            CrossTenantAccessRevokedEvent event = CrossTenantAccessRevokedEvent.newBuilder()
+                    .setMetadata(createEventMetadata())
+                    .setSourceTenantId(sourceTenantId.toString())
+                    .setTargetTenantId(targetTenantId.toString())
+                    .setResourceType(resourceType)
+                    .setRevokedBy(revokedBy)
+                    .setTimestamp(toProtobufTimestamp(Instant.now()))
+                    .build();
+
+            sendEvent(crossTenantRevokedTopic, sourceTenantId.toString(), event.toByteArray());
+        } catch (Exception e) {
+            log.error("Error publishing cross-tenant access revoked event", e);
+        }
+    }
+
     // ========== Helper Methods ==========
 
     /**
@@ -340,14 +395,18 @@ public class AuthorizationEventPublisher {
     }
 
     /**
-     * Create event metadata.
+     * Create event metadata with enhanced information.
      */
     private EventMetadata createEventMetadata() {
         return EventMetadata.newBuilder()
                 .setEventId(UUID.randomUUID().toString())
+                .setCorrelationId(UUID.randomUUID().toString())
                 .setSourceService("authorization-service")
                 .setVersion("1.0")
                 .setTimestamp(toProtobufTimestamp(Instant.now()))
+                .setPriority(Priority.PRIORITY_MEDIUM)
+                .setRetryCount(0)
+                .setEventType("AUTHORIZATION")
                 .build();
     }
 

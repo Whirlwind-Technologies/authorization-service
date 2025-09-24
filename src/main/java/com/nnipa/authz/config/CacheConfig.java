@@ -9,9 +9,6 @@ import org.springframework.context.annotation.Configuration;
 
 import java.util.concurrent.TimeUnit;
 
-/**
- * Cache configuration using Caffeine.
- */
 @Configuration
 @EnableCaching
 public class CacheConfig {
@@ -19,16 +16,20 @@ public class CacheConfig {
     @Bean
     public CacheManager cacheManager() {
         CaffeineCacheManager cacheManager = new CaffeineCacheManager(
-                "permissions", "roles", "policies", "user-permissions", "tenant-permissions"
+                "user-permissions",
+                "roles",
+                "policies",
+                "resources",
+                "cross-tenant-access",
+                "resource-types",
+                "permission-actions"
         );
-        cacheManager.setCaffeine(caffeineCacheBuilder());
-        return cacheManager;
-    }
 
-    private Caffeine<Object, Object> caffeineCacheBuilder() {
-        return Caffeine.newBuilder()
+        cacheManager.setCaffeine(Caffeine.newBuilder()
                 .maximumSize(10000)
                 .expireAfterWrite(5, TimeUnit.MINUTES)
-                .recordStats();
+                .recordStats());
+
+        return cacheManager;
     }
 }

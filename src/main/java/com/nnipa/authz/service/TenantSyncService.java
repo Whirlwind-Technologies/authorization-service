@@ -17,6 +17,14 @@ import java.util.UUID;
 
 /**
  * Service for synchronizing tenant-related authorization data.
+ * Creates comprehensive role structure for NNIPA statistical platform.
+ *
+ * Based on 5 core business modules:
+ * 1. Data Management
+ * 2. Statistical Computing
+ * 3. Privacy & Compliance
+ * 4. Data Exchange & Collaboration
+ * 5. Visualization & Analytics
  */
 @Slf4j
 @Service
@@ -26,6 +34,88 @@ public class TenantSyncService {
     private final RoleRepository roleRepository;
     private final PermissionRepository permissionRepository;
     private final RolePermissionRepository rolePermissionRepository;
+
+    /**
+     * Role definition structure for NNIPA platform
+     */
+    private static class RoleDefinition {
+        final String name;
+        final String description;
+        final int priority;
+        final List<String> resourceTypes;
+
+        RoleDefinition(String name, String description, int priority, List<String> resourceTypes) {
+            this.name = name;
+            this.description = description;
+            this.priority = priority;
+            this.resourceTypes = resourceTypes;
+        }
+    }
+
+    /**
+     * Comprehensive role definitions for NNIPA platform.
+     * Organized by functional domain and priority level.
+     */
+    private static final RoleDefinition[] DEFAULT_ROLES = {
+            // Administrative Roles (Priority 1000+)
+            new RoleDefinition("TENANT_ADMIN",
+                    "Administrator role with full tenant management capabilities", 1000,
+                    List.of("TENANT", "USER", "ROLE", "PERMISSION", "WORKSPACE", "AUDIT", "SYSTEM_CONFIG", "BILLING")),
+
+            // Data Management Roles (Priority 800-900)
+            new RoleDefinition("DATA_STEWARD",
+                    "Manages data catalogs, quality, lineage, and data lifecycle operations", 900,
+                    List.of("DATASET", "DATA_CATALOG", "DATA_QUALITY", "DATA_LINEAGE", "METADATA", "DATA_INGESTION", "DATA_TRANSFORMATION")),
+
+            new RoleDefinition("DATA_CONTRIBUTOR",
+                    "Can ingest, upload, and contribute data to the platform", 800,
+                    List.of("DATA_INGESTION", "DATASET", "METADATA")),
+
+            // Statistical Computing Roles (Priority 600-700)
+            new RoleDefinition("STATISTICIAN",
+                    "Full access to statistical computing engine and advanced analytics", 700,
+                    List.of("STATISTICAL_ENGINE", "ML_PIPELINE", "ANALYSIS_TEMPLATE", "REPORT", "DATASET", "CUSTOM_METHODOLOGY")),
+
+            new RoleDefinition("DATA_SCIENTIST",
+                    "Machine learning pipeline access and model development capabilities", 650,
+                    List.of("ML_PIPELINE", "STATISTICAL_ENGINE", "ANALYSIS_TEMPLATE", "DATASET", "MODEL_DEPLOYMENT")),
+
+            new RoleDefinition("ANALYST",
+                    "Can run pre-built analyses and standard statistical operations", 600,
+                    List.of("ANALYSIS_TEMPLATE", "REPORT", "DATASET", "BASIC_STATISTICS")),
+
+            // Privacy & Compliance Roles (Priority 800-850)
+            new RoleDefinition("PRIVACY_OFFICER",
+                    "Handles compliance, audit trails, privacy controls, and regulatory requirements", 850,
+                    List.of("PRIVACY_SETTINGS", "AUDIT", "COMPLIANCE", "PII_MANAGEMENT", "ENCRYPTION", "DIFFERENTIAL_PRIVACY", "DISCLOSURE_RISK")),
+
+            // Collaboration & Data Exchange Roles (Priority 500-550)
+            new RoleDefinition("WORKSPACE_ADMIN",
+                    "Manages shared workspaces and collaboration settings", 550,
+                    List.of("WORKSPACE", "COLLABORATION", "DATA_SHARING_AGREEMENT", "WORKFLOW_APPROVAL")),
+
+            new RoleDefinition("EXTERNAL_COLLABORATOR",
+                    "Limited access for inter-organizational collaboration", 500,
+                    List.of("SHARED_WORKSPACE", "COLLABORATIVE_ANALYSIS", "SHARED_DATASET")),
+
+            // Visualization & Analytics Roles (Priority 400-450)
+            new RoleDefinition("DASHBOARD_CREATOR",
+                    "Can create and manage interactive dashboards and visualizations", 450,
+                    List.of("DASHBOARD", "VISUALIZATION", "CHART_LIBRARY", "EXPORT")),
+
+            // General Access Roles (Priority 100-300)
+            new RoleDefinition("DATA_CONSUMER",
+                    "Read-only access to datasets and published analyses", 300,
+                    List.of("DATASET", "REPORT", "PUBLISHED_ANALYSIS")),
+
+            new RoleDefinition("REVIEWER",
+                    "Can review and approve statistical outputs before publication", 250,
+                    List.of("REPORT", "ANALYSIS_REVIEW", "PUBLICATION_APPROVAL")),
+
+            new RoleDefinition("VIEWER",
+                    "Read-only access to dashboards and visualizations", 100,
+                    List.of("DASHBOARD", "VISUALIZATION", "PUBLIC_REPORT"))
+    };
 
     /**
      * Create default roles for a new tenant.
@@ -41,51 +131,34 @@ public class TenantSyncService {
             // Add correlation ID to MDC for all subsequent log statements in this thread
             org.slf4j.MDC.put("correlationId", correlationId);
 
-            // Create Tenant Admin role
-            Role tenantAdmin = Role.builder()
-                    .tenantId(tenantId)
-                    .name("TENANT_ADMIN")
-                    .description("Administrator role for the tenant")
-                    .priority(1000)
-                    .isSystem(true)
-                    .isActive(true)
-                    .createdBy("SYSTEM")
-                    .build();
-            tenantAdmin = roleRepository.save(tenantAdmin);
-            log.debug("Created TENANT_ADMIN role: {} [correlationId: {}]", tenantAdmin.getId(), correlationId);
+            int createdRoles = 0;
+            int assignedPermissions = 0;
 
-            // Create User role
-            Role userRole = Role.builder()
-                    .tenantId(tenantId)
-                    .name("USER")
-                    .description("Standard user role")
-                    .priority(100)
-                    .isSystem(true)
-                    .isActive(true)
-                    .createdBy("SYSTEM")
-                    .build();
-            userRole = roleRepository.save(userRole);
-            log.debug("Created USER role: {} [correlationId: {}]", userRole.getId(), correlationId);
+            for (RoleDefinition roleDef : DEFAULT_ROLES) {
+                // Create role
+                Role role = Role.builder()
+                        .tenantId(tenantId)
+                        .name(roleDef.name)
+                        .description(roleDef.description)
+                        .priority(roleDef.priority)
+                        .isSystem(true)
+                        .isActive(true)
+                        .createdBy("SYSTEM")
+                        .build();
 
-            // Create Viewer role
-            Role viewerRole = Role.builder()
-                    .tenantId(tenantId)
-                    .name("VIEWER")
-                    .description("Read-only access role")
-                    .priority(50)
-                    .isSystem(true)
-                    .isActive(true)
-                    .createdBy("SYSTEM")
-                    .build();
-            viewerRole = roleRepository.save(viewerRole);
-            log.debug("Created VIEWER role: {} [correlationId: {}]", viewerRole.getId(), correlationId);
+                role = roleRepository.save(role);
+                createdRoles++;
 
-            // Assign default permissions to roles
-            assignDefaultPermissions(tenantAdmin, "ADMIN", correlationId);
-            assignDefaultPermissions(userRole, "USER", correlationId);
-            assignDefaultPermissions(viewerRole, "VIEWER", correlationId);
+                log.debug("Created {} role: {} [correlationId: {}]",
+                        roleDef.name, role.getId(), correlationId);
 
-            log.info("Default roles created for tenant: {} [correlationId: {}]", tenantId, correlationId);
+                // Assign permissions to role
+                int rolePermissions = assignPermissionsToRole(role, roleDef.resourceTypes, correlationId);
+                assignedPermissions += rolePermissions;
+            }
+
+            log.info("Created {} default roles with {} total permissions for tenant: {} [correlationId: {}]",
+                    createdRoles, assignedPermissions, tenantId, correlationId);
 
         } catch (Exception e) {
             log.error("Failed to create default roles for tenant: {} [correlationId: {}]",
@@ -98,28 +171,14 @@ public class TenantSyncService {
     }
 
     /**
-     * Assign default permissions to a role based on type.
+     * Assign permissions to a role based on resource types and role hierarchy.
      */
-    private void assignDefaultPermissions(Role role, String roleType, String correlationId) {
-        log.debug("Assigning {} permissions to role: {} [correlationId: {}]",
-                roleType, role.getId(), correlationId);
+    private int assignPermissionsToRole(Role role, List<String> resourceTypes, String correlationId) {
+        log.debug("Assigning permissions to role: {} for resources: {} [correlationId: {}]",
+                role.getName(), resourceTypes, correlationId);
 
-        List<Permission> permissions = switch (roleType) {
-            case "ADMIN" -> permissionRepository.findByResourceTypes(
-                    List.of("TENANT", "USER", "ROLE", "PERMISSION", "DATASET", "ANALYSIS", "REPORT")
-            );
-            case "USER" -> permissionRepository.findByResourceTypes(
-                            List.of("DATASET", "ANALYSIS", "REPORT")
-                    ).stream()
-                    .filter(p -> !p.getAction().equals("DELETE") && !p.getAction().equals("MANAGE"))
-                    .toList();
-            case "VIEWER" -> permissionRepository.findByResourceTypes(
-                            List.of("DATASET", "ANALYSIS", "REPORT")
-                    ).stream()
-                    .filter(p -> p.getAction().equals("READ") || p.getAction().equals("VIEW"))
-                    .toList();
-            default -> List.of();
-        };
+        // Get permissions based on role type and resource access
+        List<Permission> permissions = getPermissionsForRole(role.getName(), resourceTypes);
 
         int permissionCount = 0;
         for (Permission permission : permissions) {
@@ -133,8 +192,72 @@ public class TenantSyncService {
             permissionCount++;
         }
 
-        log.debug("Assigned {} permissions to {} role: {} [correlationId: {}]",
-                permissionCount, roleType, role.getId(), correlationId);
+        log.debug("Assigned {} permissions to role: {} [correlationId: {}]",
+                permissionCount, role.getName(), correlationId);
+
+        return permissionCount;
+    }
+
+    /**
+     * Get appropriate permissions based on role name and resource types.
+     */
+    private List<Permission> getPermissionsForRole(String roleName, List<String> resourceTypes) {
+        List<Permission> allPermissions = permissionRepository.findByResourceTypes(resourceTypes);
+
+        return switch (roleName) {
+            // Admin roles get full permissions
+            case "TENANT_ADMIN" -> allPermissions;
+
+            // Data management roles
+            case "DATA_STEWARD" -> allPermissions.stream()
+                    .filter(p -> !p.getAction().equals("DELETE_TENANT"))
+                    .toList();
+            case "DATA_CONTRIBUTOR" -> allPermissions.stream()
+                    .filter(p -> List.of("CREATE", "UPDATE", "READ", "UPLOAD").contains(p.getAction()))
+                    .toList();
+
+            // Statistical roles
+            case "STATISTICIAN" -> allPermissions.stream()
+                    .filter(p -> !p.getAction().startsWith("ADMIN_") && !p.getAction().equals("DELETE_TENANT"))
+                    .toList();
+            case "DATA_SCIENTIST" -> allPermissions.stream()
+                    .filter(p -> List.of("CREATE", "UPDATE", "READ", "EXECUTE", "DEPLOY").contains(p.getAction()))
+                    .toList();
+            case "ANALYST" -> allPermissions.stream()
+                    .filter(p -> List.of("READ", "EXECUTE", "CREATE_REPORT").contains(p.getAction()))
+                    .toList();
+
+            // Privacy and compliance
+            case "PRIVACY_OFFICER" -> allPermissions.stream()
+                    .filter(p -> !p.getAction().equals("DELETE_TENANT"))
+                    .toList();
+
+            // Collaboration roles
+            case "WORKSPACE_ADMIN" -> allPermissions.stream()
+                    .filter(p -> !p.getAction().startsWith("SYSTEM_"))
+                    .toList();
+            case "EXTERNAL_COLLABORATOR" -> allPermissions.stream()
+                    .filter(p -> List.of("READ", "COLLABORATE", "COMMENT").contains(p.getAction()))
+                    .toList();
+
+            // Visualization roles
+            case "DASHBOARD_CREATOR" -> allPermissions.stream()
+                    .filter(p -> List.of("CREATE", "UPDATE", "READ", "PUBLISH", "EXPORT").contains(p.getAction()))
+                    .toList();
+
+            // General access roles
+            case "DATA_CONSUMER" -> allPermissions.stream()
+                    .filter(p -> List.of("READ", "VIEW").contains(p.getAction()))
+                    .toList();
+            case "REVIEWER" -> allPermissions.stream()
+                    .filter(p -> List.of("READ", "REVIEW", "APPROVE", "REJECT").contains(p.getAction()))
+                    .toList();
+            case "VIEWER" -> allPermissions.stream()
+                    .filter(p -> List.of("READ", "VIEW").contains(p.getAction()))
+                    .toList();
+
+            default -> List.of();
+        };
     }
 
     /**
@@ -180,12 +303,5 @@ public class TenantSyncService {
 
     public void deactivateTenantAuthorization(UUID tenantId) {
         deactivateTenantAuthorization(tenantId, UUID.randomUUID().toString());
-    }
-
-    /**
-     * Assign default permissions to a role based on type (backward compatibility).
-     */
-    private void assignDefaultPermissions(Role role, String roleType) {
-        assignDefaultPermissions(role, roleType, UUID.randomUUID().toString());
     }
 }

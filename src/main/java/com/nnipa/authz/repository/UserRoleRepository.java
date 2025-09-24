@@ -12,35 +12,44 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
-/**
- * Repository for UserRole entity operations.
- */
 @Repository
 public interface UserRoleRepository extends JpaRepository<UserRole, UUID> {
 
-    List<UserRole> findByUserIdAndTenantId(UUID userId, UUID tenantId);
+    // Existing methods
+    boolean existsByUserIdAndRoleIdAndTenantId(UUID userId, UUID roleId, UUID tenantId);
 
-    List<UserRole> findByUserIdAndIsActiveTrue(UUID userId);
+    // Add this missing method
+    boolean existsByUserIdAndTenantId(UUID userId, UUID tenantId);
 
     Optional<UserRole> findByUserIdAndRoleIdAndTenantId(UUID userId, UUID roleId, UUID tenantId);
 
-    @Query("SELECT ur FROM UserRole ur " +
-            "JOIN FETCH ur.role r " +
-            "LEFT JOIN FETCH r.permissions " +
-            "WHERE ur.userId = :userId AND ur.tenantId = :tenantId AND ur.isActive = true")
-    List<UserRole> findActiveRolesWithPermissions(
-            @Param("userId") UUID userId,
-            @Param("tenantId") UUID tenantId
-    );
-
-    @Modifying
-    @Query("UPDATE UserRole ur SET ur.isActive = false " +
-            "WHERE ur.expiresAt IS NOT NULL AND ur.expiresAt < :now")
-    int deactivateExpiredRoles(@Param("now") Instant now);
-
-    @Query("SELECT COUNT(ur) FROM UserRole ur " +
-            "WHERE ur.role.id = :roleId AND ur.isActive = true")
+    @Query("SELECT COUNT(ur) FROM UserRole ur WHERE ur.role.id = :roleId AND ur.isActive = true")
     long countActiveUsersByRoleId(@Param("roleId") UUID roleId);
 
-    boolean existsByUserIdAndRoleIdAndTenantId(UUID userId, UUID roleId, UUID tenantId);
+    @Query("SELECT ur FROM UserRole ur JOIN FETCH ur.role r WHERE ur.userId = :userId " +
+            "AND ur.tenantId = :tenantId AND ur.isActive = true")
+    List<UserRole> findActiveRolesWithPermissions(@Param("userId") UUID userId,
+                                                  @Param("tenantId") UUID tenantId);
+
+    @Query("SELECT ur FROM UserRole ur JOIN FETCH ur.role WHERE ur.userId = :userId " +
+            "AND ur.tenantId = :tenantId AND ur.isActive = true")
+    List<UserRole> findActiveByUserIdAndTenantId(@Param("userId") UUID userId,
+                                                 @Param("tenantId") UUID tenantId);
+
+    @Query("SELECT ur FROM UserRole ur JOIN FETCH ur.role WHERE ur.role.id = :roleId " +
+            "AND ur.tenantId = :tenantId AND ur.isActive = true")
+    List<UserRole> findActiveByRoleIdAndTenantId(@Param("roleId") UUID roleId,
+                                                 @Param("tenantId") UUID tenantId);
+
+    @Query("SELECT ur FROM UserRole ur JOIN FETCH ur.role WHERE ur.userId = :userId " +
+            "AND ur.isActive = true")
+    List<UserRole> findActiveByUserId(@Param("userId") UUID userId);
+
+    @Query("SELECT ur FROM UserRole ur WHERE ur.expiresAt < :now AND ur.isActive = true")
+    List<UserRole> findExpiredAssignments(@Param("now") Instant now);
+
+    // Add this for expired permissions cleanup
+    @Modifying
+    @Query("DELETE FROM UserRole ur WHERE ur.expiresAt < :now")
+    int deleteExpiredPermissions(@Param("now") Instant now);
 }

@@ -99,9 +99,47 @@ spring:
 # Authorization Service Configuration
 authz:
   cache:
-    permission-ttl: ${PERMISSION_CACHE_TTL:300} # 5 minutes
-    role-ttl: ${ROLE_CACHE_TTL:600} # 10 minutes
-    policy-ttl: ${POLICY_CACHE_TTL:600} # 10 minutes
+    user-permissions:
+      ttl: 300 # 5 minutes
+      max-size: 10000
+    roles:
+      ttl: 600 # 10 minutes
+      max-size: 5000
+    policies:
+      ttl: 600 # 10 minutes
+      max-size: 5000
+    resources:
+      ttl: 300 # 5 minutes
+      max-size: 10000
+    cross-tenant-access:
+      ttl: 600 # 10 minutes
+      max-size: 5000
+    resource-types:
+      ttl: 3600 # 1 hour
+      max-size: 100
+    permission-actions:
+      ttl: 3600 # 1 hour
+      max-size: 100
+
+  performance:
+    batch-size: 100
+    max-hierarchy-depth: 10
+    max-permissions-per-role: 100
+    max-policies-per-resource: 50
+
+  security:
+    tenant-isolation:
+      strict-mode: true
+      audit-all-cross-tenant: true
+      validate-resource-ownership: true
+
+  cleanup:
+    expired-policies:
+      enabled: true
+      cron: "0 0 2 * * *" # Daily at 2 AM
+    expired-permissions:
+      enabled: true
+      cron: "0 0 3 * * *" # Daily at 3 AM
 
   evaluation:
     max-policy-depth: ${MAX_POLICY_DEPTH:10}

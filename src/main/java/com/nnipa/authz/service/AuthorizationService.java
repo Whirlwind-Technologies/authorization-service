@@ -10,6 +10,7 @@ import com.nnipa.authz.entity.Role;
 import com.nnipa.authz.entity.RolePermission;
 import com.nnipa.authz.enums.PolicyEffect;
 import com.nnipa.authz.event.AuthorizationEventPublisher;
+import com.nnipa.authz.exception.TenantIsolationException;
 import com.nnipa.authz.repository.*;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -41,6 +42,7 @@ public class AuthorizationService {
     private final RoleRepository roleRepository;
     private final PolicyEvaluationService policyEvaluationService;
     private final AuthorizationEventPublisher eventPublisher;
+    private final CrossTenantAccessService crossTenantAccessService;
 
     /**
      * Main authorization method - checks if a user has permission to perform an action on a resource.
@@ -138,7 +140,13 @@ public class AuthorizationService {
                 );
             }
 
-            // Step 7: Check for inherited permissions through role hierarchy
+            // Step 7: Check for cross-tenant access
+            AuthorizationResponse crossTenantResponse = evaluateCrossTenantAccess(request, userPermissions);
+            if (crossTenantResponse != null && crossTenantResponse.isAllowed()) {
+                return crossTenantResponse;
+            }
+
+            // Step 8: Check for inherited permissions through role hierarchy
             boolean hasInheritedPermission = checkInheritedPermissions(
                     userRoles,
                     request.getResource(),
@@ -497,5 +505,68 @@ public class AuthorizationService {
                 .map(p -> p.getResourceType() + ":" + p.getAction())
                 .sorted()
                 .collect(Collectors.toList());
+    }
+
+    /**
+     * Validate tenant isolation boundaries.
+     */
+    private void validateTenantIsolation(AuthorizationRequest request) {
+        // Ensure user belongs to the tenant they're trying to access
+        if (request.getTenantId() != null) {
+            // Check if user has valid role in the requested tenant
+            boolean hasRoleInTenant = userRoleRepository.existsByUserIdAndTenantId(
+                    request.getUserId(),
+                    request.getTenantId()
+            );
+
+            if (!hasRoleInTenant && request.getTargetTenantId() == null) {
+                throw new TenantIsolationException(
+                        "User does not have access to tenant: " + request.getTenantId()
+                );
+            }
+        }
+
+        // Additional isolation checks
+        if (request.getResourceId() != null) {
+            // Verify resource belongs to the correct tenant
+            Optional<Resource> resource = resourceRepository.findById(
+                    UUID.fromString(request.getResourceId())
+            );
+
+            if (resource.isPresent() &&
+                    !resource.get().getTenantId().equals(request.getTenantId())) {
+                throw new TenantIsolationException(
+                        "Resource does not belong to the requested tenant"
+                );
+            }
+        }
+    }
+
+    private AuthorizationResponse evaluateCrossTenantAccess(
+            AuthorizationRequest request,
+            Set<Permission> userPermissions) {
+
+        // Check if this is a cross-tenant request
+        if (request.getTargetTenantId() != null &&
+                !request.getTargetTenantId().equals(request.getTenantId())) {
+
+            boolean hasCrossTenantAccess = crossTenantAccessService.hasCrossTenantAccess(
+                    request.getTargetTenantId(),  // Source tenant (owner)
+                    request.getTenantId(),         // Target tenant (requester)
+                    request.getResource(),
+                    request.getAction()
+            );
+
+            if (hasCrossTenantAccess) {
+                log.debug("Cross-tenant access granted for user {} from tenant {} to tenant {}",
+                        request.getUserId(), request.getTenantId(), request.getTargetTenantId());
+                return AuthorizationResponse.allowed(
+                        "Cross-tenant access granted",
+                        List.of("CROSS_TENANT_ACCESS")
+                );
+            }
+        }
+
+        return null;
     }
 }
