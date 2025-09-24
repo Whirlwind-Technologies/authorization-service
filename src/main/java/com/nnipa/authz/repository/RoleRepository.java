@@ -75,4 +75,9 @@ public interface RoleRepository extends JpaRepository<Role, UUID> {
      */
     @Query("SELECT r FROM Role r WHERE r.tenantId = :tenantId AND r.isSystem = true")
     List<Role> findSystemRolesByTenant(@Param("tenantId") UUID tenantId);
+
+    /**
+     * Find active role by tenant ID and name.
+     */
+    Optional<Role> findByTenantIdAndNameAndIsActiveTrue(UUID tenantId, String name);
 }

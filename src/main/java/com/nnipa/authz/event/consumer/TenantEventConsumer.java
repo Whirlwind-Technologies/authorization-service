@@ -1,7 +1,11 @@
 package com.nnipa.authz.event.consumer;
 
 import com.google.protobuf.InvalidProtocolBufferException;
+import com.nnipa.authz.dto.request.AssignRoleRequest;
+import com.nnipa.authz.entity.Role;
+import com.nnipa.authz.repository.RoleRepository;
 import com.nnipa.authz.service.TenantSyncService;
+import com.nnipa.authz.service.UserRoleService;
 import com.nnipa.proto.tenant.TenantCreatedEvent;
 import com.nnipa.proto.tenant.TenantDeactivatedEvent;
 import lombok.RequiredArgsConstructor;
@@ -24,6 +28,8 @@ import java.util.UUID;
 public class TenantEventConsumer {
 
     private final TenantSyncService tenantSyncService;
+    private final UserRoleService userRoleService;
+    private final RoleRepository roleRepository;
 
     @KafkaListener(
             topics = "${kafka.topics.tenant-created:nnipa.events.tenant.created}",
@@ -44,23 +50,29 @@ public class TenantEventConsumer {
             // Deserialize the protobuf event
             TenantCreatedEvent event = TenantCreatedEvent.parseFrom(eventData);
 
-            // Extract correlation ID from event metadata
+            // Extract correlation ID and user ID from event metadata
             String correlationId = event.getMetadata().getCorrelationId();
+            String userId = event.getMetadata().getUserId();
+            UUID tenantId = UUID.fromString(event.getTenant().getTenantId());
 
-            log.info("Parsed tenant created event: tenantId={}, tenantCode={}, correlationId={}",
-                    event.getTenant().getTenantId(), event.getTenant().getTenantCode(), correlationId);
+            log.info("Parsed tenant created event: tenantId={}, tenantCode={}, userId={}, correlationId={}",
+                    tenantId, event.getTenant().getTenantCode(), userId, correlationId);
 
             // Create default roles for new tenant - pass correlation ID for tracing
-            tenantSyncService.createDefaultRolesForTenant(
-                    UUID.fromString(event.getTenant().getTenantId()),
-                    correlationId
-            );
+            tenantSyncService.createDefaultRolesForTenant(tenantId, correlationId);
+
+            // Assign TENANT_ADMIN role to the user who created the tenant
+            if (!userId.trim().isEmpty()) {
+                assignTenantAdminRole(UUID.fromString(userId), tenantId, correlationId);
+            } else {
+                log.warn("No user ID found in tenant created event metadata for tenant: {}", tenantId);
+            }
 
             // Acknowledge successful processing
             acknowledgment.acknowledge();
 
             log.info("Successfully processed tenant created event: tenantId={}, correlationId={}",
-                    event.getTenant().getTenantId(), correlationId);
+                    tenantId, correlationId);
 
         } catch (InvalidProtocolBufferException e) {
             log.error("Failed to parse protobuf message: topic={}, partition={}, offset={}, key={}",
@@ -76,6 +88,47 @@ public class TenantEventConsumer {
             // Don't acknowledge - this will cause the message to be retried
             // In production, you might want to implement dead letter queue logic here
             throw new RuntimeException("Failed to process tenant created event", e);
+        }
+    }
+
+    /**
+     * Assign TENANT_ADMIN role to the user who created the tenant.
+     */
+    private void assignTenantAdminRole(UUID userId, UUID tenantId, String correlationId) {
+        try {
+            log.info("Assigning TENANT_ADMIN role to user {} for tenant {} [correlationId: {}]",
+                    userId, tenantId, correlationId);
+
+            // Add correlation ID to MDC for tracing
+            org.slf4j.MDC.put("correlationId", correlationId);
+
+            // Find the TENANT_ADMIN role for this tenant
+            Role tenantAdminRole = roleRepository.findByTenantIdAndNameAndIsActiveTrue(tenantId, "TENANT_ADMIN")
+                    .orElseThrow(() -> new RuntimeException(
+                            "TENANT_ADMIN role not found for tenant: " + tenantId));
+
+            // Create role assignment request
+            AssignRoleRequest request = AssignRoleRequest.builder()
+                    .userId(userId)
+                    .roleId(tenantAdminRole.getId())
+                    .tenantId(tenantId)
+                    .roleName("TENANT_ADMIN")
+                    .assignedBy("SYSTEM")
+                    .build();
+
+            // Assign the role
+            userRoleService.assignRoleToUser(request);
+
+            log.info("Successfully assigned TENANT_ADMIN role to user {} for tenant {} [correlationId: {}]",
+                    userId, tenantId, correlationId);
+
+        } catch (Exception e) {
+            log.error("Failed to assign TENANT_ADMIN role to user {} for tenant {} [correlationId: {}]",
+                    userId, tenantId, correlationId, e);
+            throw new RuntimeException("Failed to assign TENANT_ADMIN role", e);
+        } finally {
+            // Clean up MDC
+            org.slf4j.MDC.remove("correlationId");
         }
     }
 

@@ -1,5 +1,5 @@
 server:
-  port: 8083
+  port: 4003
   servlet:
     context-path: /authz
   error:
@@ -10,7 +10,7 @@ server:
 
 spring:
   application:
-    name: authorization-service
+    name: authz-service
 
   datasource:
     url: ${DB_URL:jdbc:postgresql://localhost:5003/authz_db}
@@ -75,7 +75,7 @@ spring:
         linger.ms: 10
         batch.size: 32768
     consumer:
-      group-id: notification-service
+      group-id: authz-service
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
       value-deserializer: org.apache.kafka.common.serialization.ByteArrayDeserializer
       auto-offset-reset: earliest
@@ -159,11 +159,26 @@ management:
       enabled: true
   metrics:
     tags:
-      service: authorization-service
+      service: authz-service
   prometheus:
     metrics:
       export:
         enabled: true
+
+# Add SpringDoc configuration
+springdoc:
+  api-docs:
+    enabled: true
+    path: /api-docs
+  swagger-ui:
+    enabled: true
+    path: /swagger-ui.html
+    try-it-out-enabled: false
+    filter: true
+    operations-sorter: method
+    tags-sorter: alpha
+  show-actuator: false
+
 
 # Logging
 logging:
